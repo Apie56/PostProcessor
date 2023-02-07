@@ -10,7 +10,7 @@
   FORKID {F2FA3EAF-E822-4778-A478-1370D795992E}
 */
 
-description = "Tangential knife";
+description = "Aeronaut Mikron 1 Tangential Blade Cutter";
 vendor = "Jejmule";
 vendorUrl = "jejmule@gmail.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc.";
