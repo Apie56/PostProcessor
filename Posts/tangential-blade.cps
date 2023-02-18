@@ -10,13 +10,13 @@
   FORKID {F2FA3EAF-E822-4778-A478-1370D795992E}
 */
 
-description = "Aeronaut Mikron 1 Tangential Blade Cutter";
+description = "Tangential Rotary Blade";
 vendor = "Jejmule";
 vendorUrl = "jejmule@gmail.com";
 legal = "Copyright (C) 2012-2013 by Autodesk, Inc.";
 certificationLevel = 2;
 
-longDescription = "Tangential blade support based on the Autodesk generic ISO milling post for 2D.";
+longDescription = "Tangential Rotary Blade support based on the Autodesk generic ISO milling post for 2D.";
 
 extension = "nc";
 setCodePage("ascii");
@@ -27,32 +27,30 @@ minimumChordLength = spatial(0.25, MM);
 minimumCircularRadius = spatial(0.01, MM);
 maximumCircularRadius = spatial(1000, MM);
 minimumCircularSweep = toRad(0.01);
-maximumCircularSweep = toRad(360);
+maximumCircularSweep = toRad(180);
 allowHelicalMoves = false;
 allowedCircularPlanes = 1 << PLANE_XY;
 
 // user-defined properties
 properties = {
   useFeed: true, // enable to use F output
-  hasZAxis: false, // is the machine has a Z motorized axis
-  liftAtCorner: 30, // if the angle between two move is greater than 30 the blade is lift up, rotate
-  bladeDiam: 45,    // size of the blade to determine corner lift
-  hasVacuum: false, // turn on/off the vacuum pump
-  //vacuumOn: 'M54 P1', //Gcode to swicth on the vacuum pump
-  //vacuumOff: 'M55 P1', //Gcode to swicth off the vacuum pump
-  tool2Offset: 0 //offset on second head
+  hasZAxis: false, //is the machine has a Z motorized axis
+  liftAtCorner: 5, //if the angle between two move is larger than 5° the blade is lifted up and rotated
+  hasVacuum: false, //turn on/off the vacuum pump
+  // vacuumOn: 'M54 P1', //Gcode to swicth on the vacuum pump
+  // vacuumOff: 'M55 P1', //Gcode to swicth off the vacuum pump
+  tool2Offset: -55 //offset on second head
 };
 
 // user-defined property definitions
 propertyDefinitions = {
-  useFeed: {title:"Feed", description:"Enable to use F output.", type:"boolean"},
-  hasZAxis: {title:"Z axis", description:"Is the machine equipped with a Z motorized axis?", type:"boolean"},
-  liftAtCorner:{title:"Lift at corner", description:"Minumum angle at which the blade is turned in the material, if the angle is greater the blade is lifted and rotated", type:"integer"},
-  bladeDiam: {title:"Blade Diameter", description:"Diamter of the rotary cutting blade", type:"float"},
-  hasVacuum: {title:"Vacuum table", description:"Is the machine equipped with a vacuum table?", type:"boolean"},
-  //vacuumOn: {title:"Vacuum on code", description:"code to swicth on the vaccum",type:"String"},
-  //vacuumOff: {title:"Vacuum off code", description:"code to swicth off the vaccum",type:"String"},
-  tool2Offset: {title:"C offset on tool 2", description:"Offset in degree on spindle 2",type:"Float"}
+  useFeed: {title:"Use feed", description:"Enable to use F output.", type:"boolean"},
+  hasZAxis: {title:"Z axis", description:"Is the machine equipped with a Z motorized axis.", type:"boolean"},
+  liftAtCorner:{title:"Lift at corner", description:"maximum angle at which the blade is turned in the material, if the angle is larger the blade is lifted and rotated", type:"integer"},
+  hasVacuum: {title:"Vacuum table", description:"Is the machine equipped with a vacuum table", type:"boolean"},
+  // vacuumOn: {title:"Vacuum on code", description:"code to swicth on the vaccum",type:"String"},
+  // vacuumOff: {title:"Vacuum off code", description:"code to swicth off the vaccum",type:"String"},
+  tool2Offset: {title:"C offset on tool 2", description:"offset in degree on spindle 2",type:"Float"}
 };
 
 var WARNING_WORK_OFFSET = 0;
@@ -60,7 +58,7 @@ var WARNING_COOLANT = 1;
 
 var gFormat = createFormat({prefix:"G", decimals:0, width:2, zeropad:true});
 var mFormat = createFormat({prefix:"M", decimals:0});
-var pFormat = createFormat({prefix:"P", decimals:1});
+// var pFormat = createFormat({prefix:"P", decimals:1});
 
 var xyzFormat = createFormat({decimals:(unit == MM ? 3 : 4)});
 var abcFormat = createFormat({decimals:3, forceDecimal:true})//, scale:DEG});
@@ -71,7 +69,7 @@ var yOutput = createVariable({prefix:"Y"}, xyzFormat);
 if(properties.hasZAxis) {
   var zOutput = createVariable({prefix:"Z"}, xyzFormat);
 }
-var cOutput = createVariable({prefix:"A"}, abcFormat);
+var aOutput = createVariable({prefix:"A"}, abcFormat);
 var iOutput = createReferenceVariable({prefix:"I"}, xyzFormat);
 var jOutput = createReferenceVariable({prefix:"J"}, xyzFormat);
 var feedOutput = createVariable({prefix:"F"}, feedFormat);
@@ -81,78 +79,32 @@ var gAbsIncModal = createModal({}, gFormat); // modal group 3 // G90-91
 
 var sequenceNumber = 0;
 
-//  specific section for tangential blade
-var c_rad = 0;  // Current C axis position
-if (properties.bladeDiam == 28)  {
-  properties.liftAtCorner = 60
-}
+//specific section for Tangential Rotary Blade
+var a_rad = toRad(0);  // Current A axis position
 var liftAtCorner_rad = toRad(properties.liftAtCorner);
 var offset = 0
 
 /**
- Update C position for tangential blade
+ Update A position for Tangential Rotary Blade
  */
  function updateC(target_rad) {
-    //  check if we should rotate the head
-    var delta_rad = (target_rad-c_rad) // % (2*Math.PI)
-    //  writeComment(String.concat('delta ',delta_rad))
-    if (Math.abs(delta_rad) > liftAtCorner_rad) { //  angle between segments is greater than liftAtCorner_rad : lift the blade, rotate and plunge back in material
-      moveUp()
-      gMotionModal.reset()
-      writeBlock(gMotionModal.format(0), cOutput.format(toDeg(target_rad)+offset));
-      moveDown()
-      c_rad = target_rad
-    }
-    else if (delta_rad % (2*Math.PI) == 0){ //  next segment is colinear with current segment : do nothing
-    }
-    else {  //  angle between segments is smaller than max_angle : rotate blade in material
-      writeBlock(gMotionModal.format(1), cOutput.format(toDeg(target_rad)+offset));
-      c_rad = target_rad
-    }
+  //check if we should rotate the head
+  var delta_rad = (target_rad-a_rad) //% (2*Math.PI)
+  //writeComment(String.concat('delta ',delta_rad))
+  if (Math.abs(delta_rad) > liftAtCorner_rad) { //angle between segments is larger than max_angle : lift the blade, rotate and plunge back in material
+    moveUp()
+    gMotionModal.reset()
+    writeBlock(gMotionModal.format(0), aOutput.format(toDeg(target_rad)+offset));
+    moveDown()
+    a_rad = target_rad
   }
-//  function updateC(target_rad) {
-//   if (target_rad >= -360 & target_rad <= 360)  {
-//     //  check if we should rotate the head
-//     var delta_rad = (target_rad-c_rad) // % (2*Math.PI)
-//     //  writeComment(String.concat('delta ',delta_rad))
-//     if (Math.abs(delta_rad) < liftAtCorner_rad) { //  angle between segments is smaller than min_angle : lift the blade, rotate and plunge back in material
-//       moveUp()
-//       gMotionModal.reset()
-//       writeBlock(gMotionModal.format(0), cOutput.format(toDeg(target_rad)+offset));
-//       moveDown()
-//       c_rad = target_rad
-//     }
-//     else if (delta_rad % (2*Math.PI) == 0){ //  next segment is colinear with current segment : do nothing
-//     }
-//     else {  //  angle between segments is smaller than max_angle : rotate blade in material
-//       writeBlock(gMotionModal.format(1), cOutput.format(toDeg(target_rad)+offset));
-//       c_rad = target_rad
-//     }
-//   }
-//   else  {
-//     while (target_rad < -360)  {
-//       target_rad += 360
-//     }
-//     while (target_rad > 360)  {
-//       target_rad -= 360
-//     }
-//     var delta_rad = (target_rad-c_rad)
-//     if (Math.abs(delta_rad) < liftAtCorner_rad) {
-//       moveUp()
-//       gMotionModal.reset()
-//       writeBlock(gMotionModal.format(0), cOutput.format(toDeg(target_rad)+offset));
-//       moveDown()
-//       c_rad = target_rad
-//     }
-//     else if (delta_rad % (2*Math.PI) == 0){
-//     }
-//     else {
-//       writeBlock(gMotionModal.format(1), cOutput.format(toDeg(target_rad)+offset));
-//       c_rad = target_rad
-//     }
-//   }
-  
-//  }
+  else if (delta_rad % (2*Math.PI) == 0){ //next segment is colinear with current segment : do nothing
+  }
+  else {  //angle between segments is smaller than max_angle : rotate blade in material
+    writeBlock(gMotionModal.format(1), aOutput.format(toDeg(target_rad)+offset));
+    a_rad = target_rad
+  }
+ }
 
  function moveUp() {
    start = getCurrentPosition();
@@ -161,7 +113,7 @@ var offset = 0
      onRapid(start.x,start.y,getParameter(param))
    }
    else {
-     onPower(false); // use on power to lift the blade
+     onPower(false); //use on power to lift the blade
    }
  }
 
@@ -171,7 +123,7 @@ var offset = 0
     onRapid(start.x,start.y,start.z)
    }
    else {
-     onPower(true); //  use on power to plunge with the blade
+     onPower(true); //use on power to plunge with the blade
    }
  }
 
@@ -201,18 +153,18 @@ function onOpen() {
   }
   
   if (programName) {
-    writeComment(programName);
+    // writeComment(programName);
   }
   if (programComment) {
-    writeComment(programComment);
+    // writeComment(programComment);
   }
 
   writeBlock(gAbsIncModal.format(90));
-  writeBlock(gFormat.format(64)); //  G64 look forward option
+  writeBlock(gFormat.format(64)); //G64 look forward option
 
   if (properties.hasVacuum){
-    writeComment('Switch on vacuum table');
-    // writeBlock(properties.vacuumOn);
+    // writeComment('Switch on vacuum table');
+    writeBlock(properties.vacuumOn);
   }
 
   /** 
@@ -221,9 +173,9 @@ function onOpen() {
   setMachineConfiguration(machineConfiguration);*/
 }
 
-function onComment(message) {
-  writeComment(message);
-}
+// function onComment(message) {
+//   writeComment(message);
+// }
 
 function angleToMachine(angle) {
   var twopi = 2*Math.PI;
@@ -247,8 +199,8 @@ function onSection() {
   if (tool.coolant != COOLANT_OFF) {
     warningOnce(localize("Coolant not supported."), WARNING_COOLANT);
   }
-  //  select the right spindle
-  //  on my machine there are 4 spindles, selected by M90-91-92-93-94 G code
+  //select the right spindle
+  //on my machine there are 4 spindles, selected by M90-91-92-93-94 G code
   var command;
   switch(tool.number) {
     case(1):
@@ -268,25 +220,25 @@ function onSection() {
       command = 90;
       break
   }
-  writeComment('Select spindle #'+tool.number)
+  // writeComment('Select spindle #'+tool.number)
   writeBlock(mFormat.format(command))
-  c_rad = 0;
-  writeBlock(gFormat.format(0),cOutput.format(toDeg(c_rad)))
+  a_rad = 0;
+  writeBlock(gFormat.format(0),aOutput.format(toDeg(a_rad)))
   feedOutput.reset();
 }
 
 function onPower(power) {
   if(!properties.hasZAxis) {
     if(power) {
-      writeComment('plunge blade and wait')
-      writeBlock(mFormat.format(3)); // M3 switch on spindle, in this case move blade down
-      // writeBlock(gFormat.format(4),pFormat.format(0.2)); // wait 200ms the time for the blade to plunge
+      // writeComment('plunge blade and wait')
+      writeBlock(mFormat.format(3)); //M3 switch on spindle, in this case move blade down
+      // writeBlock(gFormat.format(4),pFormat.format(0.2)); //wait 200ms the time for the blade to plunge
 
     }
     else {
-      writeComment('lift blade and wait')
-      writeBlock(mFormat.format(5)); // M5 siwtch off spindle, move up
-      // writeBlock(gFormat.format(4),pFormat.format(0.2)); // wait 200ms the time for the blade to lift
+      // writeComment('lift blade and wait')
+      writeBlock(mFormat.format(5)); //M5 siwtch off spindle, move up
+      // writeBlock(gFormat.format(4),pFormat.format(0.2)); //wait 200ms the time for the blade to lift
 
     }
   }
@@ -295,9 +247,9 @@ function onPower(power) {
 function onRapid(_x, _y, _z) {
   var x = xOutput.format(_x);
   var y = yOutput.format(_y);
-  //  get next record to avoid moving down and then up the head to rotate in the segment direction
-  //  writeComment(toString(getNextRecord()));
-  //  move the head in Z if there is a Z axis
+  //gext next record to avoid moving down and then up the head to rotate in the segment direction
+  //writeComment(toString(getNextRecord()));
+  //move the head in Z if there is a Z axis
   if(properties.hasZAxis){
     var z = zOutput.format(_z);
     if (x || y || z) {
@@ -317,7 +269,7 @@ function onLinear(_x, _y, _z, feed) {
   var start = getCurrentPosition();
   var target = new Vector(_x,_y,_z);
   var direction = Vector.diff(target,start);
-  //  compute orientation of the upcoming segment
+  //compute orientation of the upcoming segment
   var orientation_rad = direction.getXYAngle();
   updateC(orientation_rad);
   var x = xOutput.format(_x);
@@ -339,27 +291,28 @@ function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
 
   // one of X/Y and I/J are required and likewise
 
+
   switch (getCircularPlane()) {
   case PLANE_XY:
     var start = getCurrentPosition();
-    var OD = start;  // vector from origin to departure
-    var OC = new Vector(cx,cy,cz);  //  vector from origin to center 
-    var Z = new Vector(0,0,clockwise ? 1 : -1);  // vector normal to XY plane
-    var CD = Vector.diff(OD,OC); // OD-OC = CO+OD = CD -> radius vector facing ourside
-    var tangent = Vector.cross(CD,Z); //  tangent vector to circle in the direction of motion
-    var start_dir = tangent.getXYAngle(); //  direction of the motion at starting point
+    var OD = start;  //vector from origin to departure
+    var OC = new Vector(cx,cy,cz);  //vector from origin to center 
+    var Z = new Vector(0,0,clockwise ? 1 : -1);  //vector normal to XY plane
+    var CD = Vector.diff(OD,OC); //OD-OC = CO+OD = CD -> radius vector facing ourside
+    var tangent = Vector.cross(CD,Z); //tangent vector to circle in the direction of motion
+    var start_dir = tangent.getXYAngle(); //direction of the motion at starting point
     updateC(start_dir);
-    var OA = new Vector(x,y,z);  // vector from origin to arrival
+    var OA = new Vector(x,y,z);  //vector from origin to arrival
     var CA = Vector.diff(OA,OC); 
     var angle = Vector.getAngle(CA,CD);
     if(clockwise){
-      c_rad -= angle
+      a_rad -= angle
     }
     else {
-      c_rad += angle
+      a_rad += angle
     }
-    writeComment(String.concat(toDeg(start_dir),' ',toDeg(angle),' ',toDeg(c_rad)))
-    writeBlock(gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), cOutput.format(toDeg(c_rad)+offset), iOutput.format(cx - start.x, 0), jOutput.format(cy - start.y, 0), feedOutput.format(feed));
+    writeComment(String.concat(toDeg(start_dir),' ',toDeg(angle),' ',toDeg(a_rad)))
+    writeBlock(gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), aOutput.format(toDeg(a_rad)+offset), iOutput.format(cx - start.x, 0), jOutput.format(cy - start.y, 0), feedOutput.format(feed));
     /*
     var start = getCurrentPosition();
     var center = new Vector(cx,cy,cz);
@@ -398,8 +351,8 @@ function onCircular(clockwise, cx, cy, cz, x, y, z, feed) {
         delta = -(delta+Math.PI)%(2*Math.PI);
       }
     }
-    c_rad += delta;
-    writeBlock(gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), cOutput.format(toDeg(c_rad)), iOutput.format(cx - start.x, 0), jOutput.format(cy - start.y, 0), feedOutput.format(feed));
+    a_rad += delta;
+    writeBlock(gMotionModal.format(clockwise ? 2 : 3), xOutput.format(x), yOutput.format(y), aOutput.format(toDeg(a_rad)), iOutput.format(cx - start.x, 0), jOutput.format(cy - start.y, 0), feedOutput.format(feed));
     */
     break;
   default:
@@ -421,11 +374,11 @@ function onCommand(command) {
 
 function onClose() {
   if (properties.hasVacuum){
-    writeComment('Switch off vacuum table');
-    // writeBlock(properties.vacuumOff);
+    // writeComment('Switch off vacuum table');
+    writeBlock(properties.vacuumOff);
   }
-  writeComment('select spindle 0');
-  writeBlock(mFormat.format(90)); //  Set back spindle 0
-  writeComment('go to corner')
-  writeBlock(gMotionModal.format(30)) //  Move to parking position 2
+  // writeComment('select spindle 0');
+  writeBlock(mFormat.format(90)); //Set back spindle 0
+  // writeComment('go to corner')
+  writeBlock(gMotionModal.format(0), 0, 0, 0) //Move to origin
 }
