@@ -80,7 +80,7 @@ var gAbsIncModal = createModal({}, gFormat); // modal group 3 // G90-91
 var sequenceNumber = 0;
 
 //specific section for Tangential Rotary Blade
-var a_rad = toRad(0);  // Current A axis position
+var a_rad = toRad(90);  // Current A axis position
 var liftAtCorner_rad = toRad(properties.liftAtCorner);
 var offset = 0
 
